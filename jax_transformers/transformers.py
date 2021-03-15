@@ -97,6 +97,7 @@ def MultiHeadAttn(embed_dim, num_heads, masked=False, block_size=1024, dropout=0
     return init_params, apply_fn
 
 # ------------ Blocks --------------------
+# Transformer Encoder Block
 def EncoderBlock(d_model, dff, num_heads, dropout):
     init_attn, apply_attn = MultiHeadAttn(d_model, num_heads, dropout=dropout)
     init_norm1, apply_norm1 = LayerNorm(d_model)
@@ -125,6 +126,7 @@ def EncoderBlock(d_model, dff, num_heads, dropout):
     
     return init_params, apply_fn
 
+# GPT like Transformer decoder block
 def GPTDecoderBlock(d_model, dff, num_heads, dropout):
     init_attn, apply_attn = MultiHeadAttn(d_model, num_heads, masked=True, dropout=dropout)
     init_norm1, apply_norm1 = LayerNorm(d_model)
@@ -153,7 +155,7 @@ def GPTDecoderBlock(d_model, dff, num_heads, dropout):
     
     return init_params, apply_fn
 
-
+# Full Transformer decoder block
 def DecoderBlock(d_model, dff, num_heads, dropout):
     init_attn, apply_attn = MultiHeadAttn(d_model, num_heads, masked=True, dropout=dropout)
     init_norm1, apply_norm1 = LayerNorm(d_model)
@@ -335,7 +337,7 @@ def Transformer(output_head, d_model, num_layers, dff, num_heads, dropout):
     return init_params, apply_fn
 
 #----------------- Heads ----------------------------------
-# ---------------- RoBERTa LM Head -------------------------
+# RoBERTa LM Head 
 def RobertaLMHead(output_size, d_model):
     init_ffn1, apply_ffn1 = Linear(d_model, d_model)
     init_norm, apply_norm = LayerNorm(d_model)

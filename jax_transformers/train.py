@@ -7,8 +7,8 @@ from torch.utils.data import DataLoader
 
 # ----------- Loss and optimizer -----------------
 
-def cross_entropy(params, model, inputs, rng, target):
-    outputs = model(params, inputs, rng)
+def cross_entropy(params, model, inputs, target, rng, mode):
+    outputs = model(params, inputs, rng, mode)
     logprobs = jax.nn.log_softmax(outputs)
     nll = jnp.take_along_axis(logprobs, jnp.expand_dims(target, -1), 1)
     return -nll.mean()
@@ -32,7 +32,7 @@ def Adam(lr, betas=(0.9, 0.999), eps=1e-8):
 
         new_params = jax.tree_multimap(lambda param, _m, _v: param - lr*_m/(jnp.sqrt(_v) + eps), params, m_hat, v_hat)
         
-        return new_params, i, m, v
+        return new_params, (i, m, v)
 
     return init_state, update
 
@@ -43,16 +43,17 @@ class TrainerConfig:
     num_epochs = 10
     num_workers = 1
     batch_size = 16
+    print_every = 100
 
     def __init__(self, **kwags):
         for k, v in kwags.items():
             setattr(self, k, v)
 
-# --------------------- Trainer (WIP) ----------------------------
+# --------------------- Trainer (WIP) TODO: test ----------------------------
 @jax.jit
 def trainer(params, apply_loss, train_dataset, test_dataset, rng, config):
 
-    def run_epoch(key, mode):
+    def run_epoch(params, apply_loss, optim, optim_state, epoch, key, mode):
         is_training = True if mode == 'train' else False
         dataset = train_dataset if is_training else test_dataset
         dataloader = DataLoader(
@@ -61,19 +62,57 @@ def trainer(params, apply_loss, train_dataset, test_dataset, rng, config):
             num_workers=config.num_workers
         )
         apply = jax.value_and_grad(apply_loss) if is_training else apply_loss
+        loss_sum = 0
 
         for i, batch in enumerate(dataloader):
             key, subkey = random.split(key)
             x, y = batch
-
-            output, output_grad = apply(pa   rams, x, y, subkey, mode)
             
+            if is_training:
+                loss, grad = apply(params, x, y, subkey, mode)
+                params, optim_state = optim(params, grad, optim_state)
+
+            else:
+                loss = apply(params, x, y, subkey, mode)
+
+            if i % config.print_every == 0:
+                print('Epoch: %.d - Iter: %.d - Loss: %.4f - Mode: %s' % (epoch, i, loss, mode))
+            loss_sum += i.item()
+
+        return params, optim_state, loss_sum / i
+    
+    init_optim, apply_optim = Adam(config.lr, config.betas)
+    optim_state = init_optim(params)
 
     # Loop
     for epoch in config.num_epochs:
         key, subkey = random.split(key)
-
-
+        params, optim_state, train_mean = run_epoch(
+            params,
+            apply_loss, 
+            apply_optim,
+            optim_state,
+            epoch,
+            subkey,
+            'train'
+        ) 
+        if test_dataset is not None:
+            params, optim_state, test_mean = run_epoch(
+                params,
+                apply_loss, 
+                apply_optim,
+                optim_state,
+                epoch,
+                subkey,
+                'train'
+            )
+        else:
+            test_mean = 0
+    
+        print(
+            '--------------\nEpoch: %d - Training mean: %.4f - Test mean: %.4f\n------------'
+            % (epoch, train_mean, test_mean)
+            )
         
 
     return params
