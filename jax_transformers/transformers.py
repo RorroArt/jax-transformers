@@ -47,8 +47,49 @@ def Dropout(rate):
         else:
             return inputs
     return apply_fn
+
+# Embeddings 
+def Embeddings(num_embeddings, embed_dim, w_initializer=normal()):
+	def init_params(rng):
+		k1, k2 = random.split(rng)
+		w = w_initializer(k1, (num_embeddings, embed_dim)) 
+		return w
+	def apply_fn(params, inputs):	
+		w = params
+		return inputs@w
+	
+	return init_params, apply_fn
+
+# Positional Embeddings
+def PosEmbeddings(num_embeddings, embed_dim):
+	init_embeddings, apply_embeddings = Embeddings(num_embeddings, embed_dim)
+
+	def init_params(rng):
+		k1, k2 = random.split(rng)
+		return init_embeddings(k2)
+	
+	def apply_fn(params, inputs):
+		embedding_params = params
+
+		seq_len = inputs.shape[1]
+		pos = jnp.expand_dims(jnp.arange(seq_len), 1)
+		index = jnp.expand_dims(jnp.arange(embed_dim), 0)
+		angles = 1 / jnp.power(1000, (2 *(index//2)) / embed_dim)
+		pos_encoding  = pos * angles
+
+		pos_encoding.at[:, 0::2].set(jnp.sin(pos_encoding[:, 0::2]))
+		pos_encoding.at[:, 1::2].set(jnp.cos(angles[:, 1::2]))
+
+		pos_encoding = jnp.expand_dims(pos_encoding, 0)
+		
+		out = apply_embeddings(embedding_params, inputs)
+		out = out + pos_encoding
+
+		return out
+	
+	return init_params, apply_fn
+
 # Multi Head Attention
-# TODO: Test randomness, Sparsity
 def MultiHeadAttn(embed_dim, num_heads, masked=False, block_size=1024, dropout=0):
     init_q, apply_q = Linear(embed_dim, embed_dim)
     init_k, apply_k = Linear(embed_dim, embed_dim)
@@ -297,22 +338,23 @@ def GPT(output_head, d_model, num_layers, dff, num_heads, dropout):
 
 
 # --------------- BERT ----------------------
-def BERT(output_head, d_model, num_layers, dff, num_heads, dropout):
-    init_encoder, apply_encoder = TransformerEncoder(d_model, num_layers, dff, num_heads, dropout) 
-    init_output_head, apply_output_head = output_head
+def BERT(output_head, vocab_size, d_model, num_layers, dff, num_heads, dropout):
+	init_embeddings, apply_embeddings = PosEmbeddings(vocab_size, d_model)
+	init_encoder, apply_encoder = TransformerEncoder(d_model, num_layers, dff, num_heads, dropout) 
+	init_output_head, apply_output_head = output_head
     
-    def init_params(rng):
-        k1, k2 = random.split(rng, 2)
-        return init_encoder(k1), init_output_head(k2)
+	def init_params(rng):
+		k1, k2, k3 = random.split(rng, 3)
+		return init_embeddings(k1), init_encoder(k2), init_output_head(k3)
 
-    def apply_fn(params, inputs, rng, mode='train'):
-        encoder_params, output_head_params =  params
-        out = apply_encoder(encoder_params, inputs, rng, mode) 
-        out = apply_output_head(output_head_params, out)
+	def apply_fn(params, inputs, rng, mode='train'):
+		embedding_params, encoder_params, output_head_params = params
+		embedded_inputs = apply_embeddings(embedding_params, inputs)
+		out = apply_encoder(encoder_params, embedded_inputs, rng, mode)
+		out = apply_output_head(output_head_params, out)
+		return out
 
-        return out
-
-    return init_params, apply_fn
+	return init_params, apply_fn
 
 
 # --------------- Transformer ----------------------

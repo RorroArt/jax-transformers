@@ -82,4 +82,3 @@ def checkpoint2jax(model_dir='models/roberta.base/model.pt'):
 
     return params
 
-checkpoint2jax()
